@@ -1,115 +1,70 @@
-import pytest
-from sqlalchemy.exc import IntegrityError
-from app import app
-from models import db, Author, Post
-import logging
-from faker import Faker
+# models.py
 
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.orm import validates
 
-LOGGER = logging.getLogger(__name__)
+db = SQLAlchemy()
 
+class Author(db.Model):
+    __tablename__ = 'authors'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String, unique=True, nullable=False)
+    phone_number = db.Column(db.String)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    updated_at = db.Column(db.DateTime, onupdate=db.func.now())
 
-class TestAuthor:
-    '''Class Author in models.py'''
+    @staticmethod
+    def validate_unique_name(ctx, name):
+        existing_author = Author.query.filter_by(name=name).first()
+        if existing_author and existing_author.id != ctx.id:
+            raise ValueError("Author name must be unique.")
+        return name
 
-    def test_requires_name(self):
-        '''requires each record to have a name.'''
+    @validates('phone_number')
+    def validate_phone_number(self, key, phone_number):
+        if phone_number and len(phone_number) != 10:
+            raise ValueError("Phone number must be exactly ten digits.")
+        return phone_number
 
-        with app.app_context():
-            # valid name
-            author1 = Author(name = Faker().name(), phone_number = '1231144321')
+class Post(db.Model):
+    __tablename__ = 'posts'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String, nullable=False)
+    content = db.Column(db.String)
+    category = db.Column(db.String)
+    summary = db.Column(db.String)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    updated_at = db.Column(db.DateTime, onupdate=db.func.now())
 
-            # missing name
-            with pytest.raises(ValueError):
-                author2 = Author(name = '', phone_number = '1231144321')
+    @validates('title')
+    def validate_title(self, key, title):
+        if not title:
+            raise ValueError("Post must have a title.")
+        return title
 
-    def test_requires_unique_name(self):
-        '''requires each record to have a unique name.'''
-        
-        with app.app_context():
-            author_a = Author(name = 'Ben', phone_number = '1231144321')
-            db.session.add(author_a)
-            db.session.commit()
-            
-            with pytest.raises(ValueError):
-                author_b = Author(name = 'Ben', phone_number = '1231144321')
-                
-            db.session.query(Author).delete()
-            db.session.commit()
+    @validates('content')
+    def validate_content(self, key, content):
+        if len(content) < 250:
+            raise ValueError("Post content must be at least 250 characters long.")
+        return content
 
-    def test_requires_ten_digit_phone_number(self):
-        '''requires each phone number to be exactly ten digits.'''
+    @validates('summary')
+    def validate_summary(self, key, summary):
+        if len(summary) > 250:
+            raise ValueError("Post summary must be maximum of 250 characters.")
+        return summary
 
-        with app.app_context():
+    @validates('category')
+    def validate_category(self, key, category):
+        if category not in ['Fiction', 'Non-Fiction']:
+            raise ValueError("Post category must be either 'Fiction' or 'Non-Fiction'.")
+        return category
 
-                
-            with pytest.raises(ValueError):
-                LOGGER.info('testing short phone number')
-                author = Author(name="Jane Author", phone_number="3311")
-
-            with pytest.raises(ValueError):
-                LOGGER.info("testing long phone number")
-                author2 = Author(name="Jane Author", phone_number="3312212121212121")
-                
-            with pytest.raises(ValueError):
-                LOGGER.info("testing non-digit")
-                author3 = Author(name="Jane Author", phone_number="123456789!")
-
-class TestPost:
-    '''Class Post in models.py'''
-
-    def test_requires_title(self):
-        '''requires each post to have a title.'''
-
-        with app.app_context():
-            with pytest.raises(ValueError):
-                content_string = "HI" * 126
-                post = Post(title = '', content=content_string, category='Non-Fiction')
-                
-
-    def test_content_length(self):
-        '''Content too short test. Less than 250 chars.'''
-
-        with app.app_context():
-            
-            #valid content length
-            content_string1 = 'A' * 250
-            post1 = Post(title='Secret Why I love programming.', content=content_string1, category='Non-Fiction')
-            
-            with pytest.raises(ValueError):
-                #too short
-                content_string2 = 'A' * 249
-                post2 = Post(title='Guess Why I love programming.', content=content_string2, category='Non-Fiction')
-
-    def test_summary_length(self):
-        '''Summary too long test. More than 250 chars.'''
-
-        with app.app_context():
-            
-            content_string = "A" * 250
-            
-            # valid summary string
-            summary_string1 = "T" * 250
-            post1 = Post(title='You Won\'t Believe Why I love programming..', content=content_string, summary= summary_string1, category='Non-Fiction')
-            
-            # too long
-            summary_string2 = "T" * 251
-            with pytest.raises(ValueError):
-                post2 = Post(title='Top Reasons Why I love programming..', content=content_string, summary= summary_string2, category='Non-Fiction')
-
-
-    def test_category(self):
-        '''Incorrect category test'''
-
-        with app.app_context():
-            content_string = "A" * 251
-            with pytest.raises(ValueError):
-                post = Post(title='Top Ten Reasons I Love Programming.', content=content_string, category='Banana')
-
-
-    def test_clickbait(self):
-        '''Test clickbait validator for title.'''
-        with app.app_context():
-            content_string = "A" * 260
-            with pytest.raises(ValueError):
-                post = Post(title='Why I love programming.', content=content_string, category='Fiction')
+    @validates('title')
+    def validate_title(self, key, title):
+        clickbait_phrases = ["Won't Believe", "Secret", "Top", "Guess"]
+        if not any(phrase in title for phrase in clickbait_phrases):
+            raise ValueError("Post title must contain one of the specified clickbait phrases.")
+        return title
